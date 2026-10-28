@@ -9,14 +9,22 @@ ifeq ($(LIBS),)
 LIBS = -lraylib -lvterm
 endif
 
-silly-term: src/main.c src/load_conf.c src/load_conf.h
-> $(CC) $(CFLAGS) $(PKGS) src/main.c src/load_conf.c -o $@ $(LIBS) -lutil -lm
+SRC := $(wildcard src/*.c)
+HDR := $(wildcard src/headers/*.h)
+OBJ := $(SRC:src/%.c=build/%.o)
+
+silly-term: $(OBJ)
+> $(CC) $(OBJ) -o $@ $(LIBS) -lutil -lm
+
+build/%.o: src/%.c $(HDR)
+> @mkdir -p build
+> $(CC) $(CFLAGS) $(PKGS) -c $< -o $@
 
 install-conf:
 > mkdir -p $${XDG_CONFIG_HOME:-$$HOME/.config}/silly-term
 > cp -n sillyconf.conf $${XDG_CONFIG_HOME:-$$HOME/.config}/silly-term/
 
 clean:
-> rm -f silly-term
+> rm -rf build silly-term
 
 .PHONY: install-conf clean
