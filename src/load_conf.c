@@ -26,6 +26,7 @@ static const Opt OPTS[] = {
     O_FLT ("line_height",      line_height,      0.5, 3.0),
     O_INT ("letter_spacing",   letter_spacing,   -10, 50),
     O_BOOL("font_smooth",      font_smooth),
+    O_INT ("font_step",        font_step,        1, 20),
 
     O_STR ("title",            title),
     O_INT ("cols",             cols,             2, 1000),
@@ -50,6 +51,7 @@ static const Opt OPTS[] = {
     O_BOOL("bold_bright",      bold_bright),
     O_BOOL("fake_bold",        fake_bold),
     O_BOOL("copy_on_select",   copy_on_select),
+    O_BOOL("mouse_reporting",  mouse_reporting),
 
     O_COL ("fg",               fg),
     O_COL ("bg",               bg),
@@ -65,10 +67,18 @@ static const Opt OPTS[] = {
     O_COL ("color12", palette[12]), O_COL ("color13", palette[13]),
     O_COL ("color14", palette[14]), O_COL ("color15", palette[15]),
 
-    O_STR ("key_copy",         key_copy),
-    O_STR ("key_paste",        key_paste),
-    O_STR ("key_scroll_up",    key_scroll_up),
-    O_STR ("key_scroll_down",  key_scroll_down),
+    O_STR ("key_copy",             key_copy),
+    O_STR ("key_paste",            key_paste),
+    O_STR ("key_select_all",       key_select_all),
+    O_STR ("key_scroll_up",        key_scroll_up),
+    O_STR ("key_scroll_down",      key_scroll_down),
+    O_STR ("key_scroll_top",       key_scroll_top),
+    O_STR ("key_scroll_bottom",    key_scroll_bottom),
+    O_STR ("key_clear_scrollback", key_clear_scrollback),
+    O_STR ("key_font_increase",    key_font_increase),
+    O_STR ("key_font_decrease",    key_font_decrease),
+    O_STR ("key_font_reset",       key_font_reset),
+    O_STR ("key_fullscreen",       key_fullscreen),
 };
 
 static Rgb hex(unsigned v) {
@@ -88,6 +98,7 @@ void set_defaults(Config *c) {
     c->font_size      = 20;
     c->line_height    = 1.2f;
     c->font_smooth    = true;
+    c->font_step      = 2;
 
     snprintf(c->title, sizeof c->title, "silly-term");
     c->cols           = 80;
@@ -110,6 +121,7 @@ void set_defaults(Config *c) {
     c->cursor_thickness  = 2;
 
     c->bold_bright    = true;
+    c->mouse_reporting = true;
 
     c->fg = hex(0xc5c8c6);
     c->bg = hex(0x1d1f21);
@@ -118,10 +130,20 @@ void set_defaults(Config *c) {
     c->selection_bg = hex(0x373b41);
     for (int i = 0; i < 16; i++) c->palette[i] = hex(pal[i]);
 
-    snprintf(c->key_copy,        sizeof c->key_copy,        "ctrl+shift+c");
-    snprintf(c->key_paste,       sizeof c->key_paste,       "ctrl+shift+v");
-    snprintf(c->key_scroll_up,   sizeof c->key_scroll_up,   "shift+pageup");
-    snprintf(c->key_scroll_down, sizeof c->key_scroll_down, "shift+pagedown");
+#define KEY(field, spec) snprintf(c->field, sizeof c->field, "%s", spec)
+    KEY(key_copy,             "ctrl+shift+c");
+    KEY(key_paste,            "ctrl+shift+v, shift+insert");
+    KEY(key_select_all,       "ctrl+shift+a");
+    KEY(key_scroll_up,        "shift+pageup");
+    KEY(key_scroll_down,      "shift+pagedown");
+    KEY(key_scroll_top,       "shift+home");
+    KEY(key_scroll_bottom,    "shift+end");
+    KEY(key_clear_scrollback, "ctrl+shift+k");
+    KEY(key_font_increase,    "ctrl+equal, ctrl+shift+equal, ctrl+kp_add");
+    KEY(key_font_decrease,    "ctrl+minus, ctrl+kp_subtract");
+    KEY(key_font_reset,       "ctrl+0, ctrl+kp_0");
+    KEY(key_fullscreen,       "f11");
+#undef KEY
 }
 
 int default_conf_path(char *out, size_t out_sz) {

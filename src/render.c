@@ -38,15 +38,19 @@ static Font load_font(const Config *cfg, int fs) {
     return GetFontDefault();
 }
 
-int view_init(View *v, const Config *cfg) {
-    v->fs   = cfg->font_size;
-    v->font = load_font(cfg, v->fs);
-
+static void measure(View *v, const Config *cfg) {
     Vector2 m = MeasureTextEx(v->font, "M", (float)v->fs, 0);
     v->cw = (int)ceilf(m.x) + cfg->letter_spacing;
     v->ch = (int)ceilf((float)v->fs * cfg->line_height);
     if (v->cw < 1) v->cw = 1;
     if (v->ch < 1) v->ch = 1;
+}
+
+int view_init(View *v, const Config *cfg) {
+    memset(v, 0, sizeof *v);
+    v->fs   = cfg->font_size;
+    v->font = load_font(cfg, v->fs);
+    measure(v, cfg);
 
     v->cursor_style = !strcmp(cfg->cursor_style, "underline") ? 1
                     : !strcmp(cfg->cursor_style, "bar")       ? 2 : 0;
@@ -54,7 +58,22 @@ int view_init(View *v, const Config *cfg) {
 }
 
 void view_free(View *v) {
-    if (v->font.texture.id != GetFontDefault().texture.id) UnloadFont(v->font);
+    if (v->font.texture.id != 0 && v->font.texture.id != GetFontDefault().texture.id)
+        UnloadFont(v->font);
+    v->font.texture.id = 0;
+}
+
+int view_set_font_size(View *v, const Config *cfg, int size) {
+    if (size < 6)   size = 6;
+    if (size > 200) size = 200;
+    if (size == v->fs) return 0;
+
+    Font nf = load_font(cfg, size);          /* load first so a failure keeps the old font */
+    view_free(v);
+    v->font = nf;
+    v->fs   = size;
+    measure(v, cfg);
+    return 1;
 }
 
 int view_pixel_width(const View *v, const Config *cfg, int cols)  { return cols * v->cw + 2 * cfg->padding; }

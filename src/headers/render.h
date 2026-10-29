@@ -18,6 +18,10 @@ typedef struct {
 int  view_init(View *v, const Config *cfg);
 void view_free(View *v);
 
+/* Change the font size at runtime (clamped to 6..200). Returns 1 if it changed.
+   The caller must refit the grid/window afterwards. */
+int  view_set_font_size(View *v, const Config *cfg, int size);
+
 /* Window size in px for the given grid. */
 int  view_pixel_width(const View *v, const Config *cfg, int cols);
 int  view_pixel_height(const View *v, const Config *cfg, int rows);

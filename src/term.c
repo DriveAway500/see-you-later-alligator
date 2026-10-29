@@ -50,6 +50,9 @@ static int cb_prop(VTermProp prop, VTermValue *val, void *u) {
     case VTERM_PROP_CURSORVISIBLE:
         t->cursor_visible = val->boolean;
         break;
+    case VTERM_PROP_MOUSE:
+        t->mouse_mode = val->number;
+        break;
     case VTERM_PROP_ALTSCREEN:
         t->altscreen = val->boolean;
         t->sb_off = 0;
@@ -166,6 +169,14 @@ void term_scroll(Term *t, int lines) {
     t->sb_off += lines;
     if (t->sb_off < 0) t->sb_off = 0;
     if (t->sb_off > t->sb_count) t->sb_off = t->sb_count;
+}
+
+void term_clear_scrollback(Term *t) {
+    for (int i = 0; i < t->sb_count; i++) {
+        free(sb_line(t, i)->cells);
+        sb_line(t, i)->cells = NULL;
+    }
+    t->sb_head = t->sb_count = t->sb_off = 0;
 }
 
 bool term_get_cell(const Term *t, int vrow, int col, VTermScreenCell *cell) {

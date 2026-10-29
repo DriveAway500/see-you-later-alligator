@@ -8,10 +8,25 @@
 
 void input_init(Input *in, const Config *cfg) {
     memset(in, 0, sizeof *in);
-    in->copy        = parse_bind(cfg->key_copy);
-    in->paste       = parse_bind(cfg->key_paste);
-    in->scroll_up   = parse_bind(cfg->key_scroll_up);
-    in->scroll_down = parse_bind(cfg->key_scroll_down);
+    in->copy             = parse_bindset(cfg->key_copy);
+    in->paste            = parse_bindset(cfg->key_paste);
+    in->select_all       = parse_bindset(cfg->key_select_all);
+    in->scroll_up        = parse_bindset(cfg->key_scroll_up);
+    in->scroll_down      = parse_bindset(cfg->key_scroll_down);
+    in->scroll_top       = parse_bindset(cfg->key_scroll_top);
+    in->scroll_bottom    = parse_bindset(cfg->key_scroll_bottom);
+    in->clear_scrollback = parse_bindset(cfg->key_clear_scrollback);
+    in->font_increase    = parse_bindset(cfg->key_font_increase);
+    in->font_decrease    = parse_bindset(cfg->key_font_decrease);
+    in->font_reset       = parse_bindset(cfg->key_font_reset);
+    in->fullscreen       = parse_bindset(cfg->key_fullscreen);
+    in->mouse_r = in->mouse_c = -1;
+}
+
+unsigned input_take_actions(Input *in) {
+    unsigned a = in->actions;
+    in->actions = 0;
+    return a;
 }
 
 /* Any input that goes to the shell snaps the view back to the bottom. */
@@ -33,6 +48,12 @@ static void copy_selection(Input *in, const Term *t) {
     free(s);
 }
 
+static void select_all(Input *in, const Term *t) {
+    in->sel.active = true;
+    in->sel.r0 = 0;            in->sel.c0 = 0;
+    in->sel.r1 = t->rows - 1;  in->sel.c1 = t->cols - 1;
+}
+
 static void paste(Term *t) {
     const char *txt = GetClipboardText();
     if (!txt || !*txt) return;
@@ -52,22 +73,41 @@ static void paste(Term *t) {
     free(b);
 }
 
+static VTermModifier modifiers(bool ctrl, bool shift, bool alt) {
+    return (VTermModifier)((shift ? VTERM_MOD_SHIFT : 0) |
+                           (alt   ? VTERM_MOD_ALT   : 0) |
+                           (ctrl  ? VTERM_MOD_CTRL  : 0));
+}
+
 /* --------------------------------------------------------------- keyboard */
+
+/* Runs the configurable shortcuts. Returns true if one fired. */
+static bool run_shortcuts(Input *in, Term *t, bool ctrl, bool shift, bool alt) {
+#define HIT(set) bindset_hit(&in->set, ctrl, shift, alt)
+    if      (HIT(copy))             copy_selection(in, t);
+    else if (HIT(paste))          { typed(in, t); paste(t); }
+    else if (HIT(select_all))       select_all(in, t);
+    else if (HIT(scroll_up))        scroll(in, t,  t->rows / 2);
+    else if (HIT(scroll_down))      scroll(in, t, -t->rows / 2);
+    else if (HIT(scroll_top))       scroll(in, t,  t->sb_count);
+    else if (HIT(scroll_bottom))    scroll(in, t, -t->sb_off);
+    else if (HIT(clear_scrollback)) { term_clear_scrollback(t); in->sel.active = false; }
+    else if (HIT(font_increase))    in->actions |= ACT_FONT_INCREASE;
+    else if (HIT(font_decrease))    in->actions |= ACT_FONT_DECREASE;
+    else if (HIT(font_reset))       in->actions |= ACT_FONT_RESET;
+    else if (HIT(fullscreen))       in->actions |= ACT_FULLSCREEN;
+    else return false;
+#undef HIT
+    return true;
+}
 
 void input_keyboard(Input *in, Term *t) {
     bool ctrl  = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
     bool shift = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
     bool alt   = IsKeyDown(KEY_LEFT_ALT)     || IsKeyDown(KEY_RIGHT_ALT);
-    VTermModifier mod = (VTermModifier)((shift ? VTERM_MOD_SHIFT : 0) |
-                                        (alt   ? VTERM_MOD_ALT   : 0) |
-                                        (ctrl  ? VTERM_MOD_CTRL  : 0));
+    VTermModifier mod = modifiers(ctrl, shift, alt);
 
-    /* configurable shortcuts */
-    bool bound = false;
-    if      (bind_hit(&in->copy,        ctrl, shift, alt)) { copy_selection(in, t);        bound = true; }
-    else if (bind_hit(&in->paste,       ctrl, shift, alt)) { typed(in, t); paste(t);       bound = true; }
-    else if (bind_hit(&in->scroll_up,   ctrl, shift, alt)) { scroll(in, t,  t->rows / 2);  bound = true; }
-    else if (bind_hit(&in->scroll_down, ctrl, shift, alt)) { scroll(in, t, -t->rows / 2);  bound = true; }
+    bool bound = run_shortcuts(in, t, ctrl, shift, alt);
 
     /* printable characters (always drain the queue) */
     int ch;
@@ -113,14 +153,37 @@ void input_keyboard(Input *in, Term *t) {
 
 /* ------------------------------------------------------------------ mouse */
 
-void input_mouse(Input *in, Term *t, const Config *cfg, const View *v) {
-    Vector2 m = GetMousePosition();
-    int c = (int)((m.x - cfg->padding) / v->cw);
-    int r = (int)((m.y - cfg->padding) / v->ch);
-    if (c < 0) c = 0;
-    if (c >= t->cols) c = t->cols - 1;
-    if (r < 0) r = 0;
-    if (r >= t->rows) r = t->rows - 1;
+/* Mouse events for applications (vim, tmux, htop, mc...). libvterm encodes them
+   in whichever protocol the app negotiated (X10 / SGR / urxvt). */
+static void mouse_report(Input *in, Term *t, int r, int c, VTermModifier mod) {
+    in->sel.active = in->sel.dragging = false;
+    if (t->sb_off > 0) t->sb_off = 0;
+
+    if (r != in->mouse_r || c != in->mouse_c) {
+        vterm_mouse_move(t->vt, r, c, mod);
+        in->mouse_r = r;
+        in->mouse_c = c;
+    }
+
+    static const struct { int rl; int vt; } buttons[] = {
+        {MOUSE_BUTTON_LEFT, 1}, {MOUSE_BUTTON_MIDDLE, 2}, {MOUSE_BUTTON_RIGHT, 3},
+    };
+    for (size_t i = 0; i < sizeof buttons / sizeof *buttons; i++) {
+        if (IsMouseButtonPressed(buttons[i].rl))  vterm_mouse_button(t->vt, buttons[i].vt, true,  mod);
+        if (IsMouseButtonReleased(buttons[i].rl)) vterm_mouse_button(t->vt, buttons[i].vt, false, mod);
+    }
+
+    float w = GetMouseWheelMove();
+    if (w != 0.0f) {
+        int steps = (int)ceilf(fabsf(w));
+        for (int i = 0; i < steps; i++)
+            vterm_mouse_button(t->vt, w > 0 ? 4 : 5, true, mod);     /* 4 = wheel up, 5 = wheel down */
+    }
+}
+
+/* Local behaviour: selection, middle-click paste, wheel scrolling. */
+static void mouse_local(Input *in, Term *t, const Config *cfg, int r, int c) {
+    in->mouse_r = in->mouse_c = -1;
 
     Selection *s = &in->sel;
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -144,11 +207,31 @@ void input_mouse(Input *in, Term *t, const Config *cfg, const View *v) {
         int n = (int)roundf(w * (float)cfg->scroll_lines);
         if (n == 0) n = w > 0 ? 1 : -1;
 
-        if (t->altscreen) {                       /* vim, less, htop...: wheel -> arrows */
+        if (t->altscreen) {                       /* less, man...: wheel -> arrows */
             for (int i = 0; i < abs(n); i++)
                 vterm_keyboard_key(t->vt, n > 0 ? VTERM_KEY_UP : VTERM_KEY_DOWN, VTERM_MOD_NONE);
         } else {
             scroll(in, t, n);
         }
     }
+}
+
+void input_mouse(Input *in, Term *t, const Config *cfg, const View *v) {
+    Vector2 m = GetMousePosition();
+    int c = (int)((m.x - cfg->padding) / v->cw);
+    int r = (int)((m.y - cfg->padding) / v->ch);
+    if (c < 0) c = 0;
+    if (c >= t->cols) c = t->cols - 1;
+    if (r < 0) r = 0;
+    if (r >= t->rows) r = t->rows - 1;
+
+    bool ctrl  = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    bool shift = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
+    bool alt   = IsKeyDown(KEY_LEFT_ALT)     || IsKeyDown(KEY_RIGHT_ALT);
+
+    /* Shift always bypasses the application, so text stays selectable in vim/tmux. */
+    bool report = cfg->mouse_reporting && t->mouse_mode != VTERM_PROP_MOUSE_NONE && !shift;
+
+    if (report) mouse_report(in, t, r, c, modifiers(ctrl, false, alt));
+    else        mouse_local(in, t, cfg, r, c);
 }

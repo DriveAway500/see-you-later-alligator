@@ -12,6 +12,7 @@ typedef struct {
     int   font_size;
     float line_height;        /* multiplier of font_size */
     int   letter_spacing;     /* extra px added to cell width */
+    int   font_step;          /* px per zoom shortcut */
     bool  font_smooth;
 
     /* window */
@@ -47,12 +48,21 @@ typedef struct {
 
     /* selection */
     bool  copy_on_select;
+    bool  mouse_reporting;    /* forward clicks/wheel to apps that request them */
 
-    /* keybinds: "ctrl+shift+c", "shift+pageup", "f11", ... */
-    char  key_copy[48];
-    char  key_paste[48];
-    char  key_scroll_up[48];
-    char  key_scroll_down[48];
+    /* keybinds: comma-separated alternatives, e.g. "ctrl+shift+c, ctrl+insert" */
+    char  key_copy[96];
+    char  key_paste[96];
+    char  key_select_all[96];
+    char  key_scroll_up[96];
+    char  key_scroll_down[96];
+    char  key_scroll_top[96];
+    char  key_scroll_bottom[96];
+    char  key_clear_scrollback[96];
+    char  key_font_increase[96];
+    char  key_font_decrease[96];
+    char  key_font_reset[96];
+    char  key_fullscreen[96];
 } Config;
 
 void set_defaults(Config *c);

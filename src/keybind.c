@@ -26,7 +26,12 @@ static int key_by_name(const char *t) {
         {"up", KEY_UP},          {"down", KEY_DOWN},
         {"left", KEY_LEFT},      {"right", KEY_RIGHT},
         {"space", KEY_SPACE},    {"enter", KEY_ENTER},
-        {"tab", KEY_TAB},
+        {"tab", KEY_TAB},        {"backspace", KEY_BACKSPACE},
+        {"equal", KEY_EQUAL},    {"plus", KEY_EQUAL},     /* '+' is shift+'=' on US layouts */
+        {"minus", KEY_MINUS},    {"comma", KEY_COMMA},
+        {"period", KEY_PERIOD},  {"slash", KEY_SLASH},
+        {"kp_add", KEY_KP_ADD},  {"kp_subtract", KEY_KP_SUBTRACT},
+        {"kp_0", KEY_KP_0},
     };
     for (size_t i = 0; i < sizeof names / sizeof *names; i++)
         if (!strcmp(names[i].name, t)) return names[i].key;
@@ -54,4 +59,23 @@ bool key_pressed(int k) {
 
 bool bind_hit(const Bind *b, bool ctrl, bool shift, bool alt) {
     return b->key && b->ctrl == ctrl && b->shift == shift && b->alt == alt && key_pressed(b->key);
+}
+
+BindSet parse_bindset(const char *spec) {
+    BindSet s = { .n = 0 };
+    char buf[128];
+    snprintf(buf, sizeof buf, "%s", spec);
+
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok && s.n < BINDSET_MAX; tok = strtok_r(NULL, ",", &save)) {
+        Bind b = parse_bind(tok);
+        if (b.key) s.b[s.n++] = b;
+    }
+    return s;
+}
+
+bool bindset_hit(const BindSet *s, bool ctrl, bool shift, bool alt) {
+    for (int i = 0; i < s->n; i++)
+        if (bind_hit(&s->b[i], ctrl, shift, alt)) return true;
+    return false;
 }

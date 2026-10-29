@@ -8,9 +8,11 @@
 #include "headers/load_conf.h"
 #include "headers/render.h"
 #include "headers/term.h"
+#include "headers/window.h"
 
 static void on_title(const char *title) { SetWindowTitle(title); }
 
+/* 0 = ok, 1 = exit successfully (help), -1 = usage error */
 static int load_config(Config *cfg, int argc, char **argv) {
     const char *conf = NULL;
     bool explicit_conf = false;
@@ -36,15 +38,17 @@ static int load_config(Config *cfg, int argc, char **argv) {
     return 0;
 }
 
-static void open_window(const Config *cfg) {
-    unsigned flags = FLAG_WINDOW_HIDDEN;        /* hidden until we know the real size */
-    if (!cfg->decorated)    flags |= FLAG_WINDOW_UNDECORATED;
-    if (cfg->resizable)     flags |= FLAG_WINDOW_RESIZABLE;
-    if (cfg->opacity < 1.f) flags |= FLAG_WINDOW_TRANSPARENT;
-    SetConfigFlags(flags);
-    SetTraceLogLevel(LOG_WARNING);
-    InitWindow(100, 100, cfg->title);
-    SetExitKey(KEY_NULL);                       /* ESC must reach the shell */
+/* Perform the window-level actions requested by input shortcuts. */
+static void apply_actions(unsigned acts, View *view, const Config *cfg, Term *term, Input *in) {
+    int size = view->fs;
+    if (acts & ACT_FONT_INCREASE) size += cfg->font_step;
+    if (acts & ACT_FONT_DECREASE) size -= cfg->font_step;
+    if (acts & ACT_FONT_RESET)    size  = cfg->font_size;
+
+    if (size != view->fs && view_set_font_size(view, cfg, size))
+        if (window_refit(view, cfg, term)) in->sel.active = false;
+
+    if (acts & ACT_FULLSCREEN) window_toggle_fullscreen();
 }
 
 int main(int argc, char **argv) {
@@ -54,16 +58,11 @@ int main(int argc, char **argv) {
     int rc = load_config(&cfg, argc, argv);
     if (rc != 0) return rc < 0 ? 1 : 0;
 
-    open_window(&cfg);
+    window_open(&cfg);
 
     View view;
     view_init(&view, &cfg);
-
-    SetWindowSize(view_pixel_width(&view, &cfg, cfg.cols), view_pixel_height(&view, &cfg, cfg.rows));
-    if (cfg.resizable)
-        SetWindowMinSize(view_pixel_width(&view, &cfg, 2), view_pixel_height(&view, &cfg, 1));
-    ClearWindowState(FLAG_WINDOW_HIDDEN);
-    SetTargetFPS(cfg.fps);
+    window_show(&view, &cfg, cfg.cols, cfg.rows);
 
     Term term;
     if (term_init(&term, &cfg) != 0) {
@@ -76,19 +75,11 @@ int main(int argc, char **argv) {
     input_init(&input, &cfg);
 
     while (!WindowShouldClose()) {
-        if (cfg.resizable && IsWindowResized()) {
-            int nc = (GetScreenWidth()  - 2 * cfg.padding) / view.cw;
-            int nr = (GetScreenHeight() - 2 * cfg.padding) / view.ch;
-            if (nc < 1) nc = 1;
-            if (nr < 1) nr = 1;
-            if (nc != term.cols || nr != term.rows) {
-                term_resize(&term, nc, nr);
-                input.sel.active = false;
-            }
-        }
+        if (window_handle_resize(&view, &cfg, &term)) input.sel.active = false;
 
         input_keyboard(&input, &term);
         input_mouse(&input, &term, &cfg, &view);
+        apply_actions(input_take_actions(&input), &view, &cfg, &term, &input);
 
         int got = term_pump(&term);
         if (got < 0) break;                                   /* shell exited */
