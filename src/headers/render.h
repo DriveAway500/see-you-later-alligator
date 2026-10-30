@@ -29,6 +29,11 @@ typedef struct {
     /* The VTerm palette needs Term::screen, which is not available in view_init. */
     const void *palette_screen;
     bool palette_ready;
+    
+    /* per-row cell buffer for term_get_row; grows only when the grid grows */
+    VTermScreenCell *row_buf;
+    int              row_cap;
+    
 } View;
 
 /* Call after InitWindow (needs a GL context). */

@@ -1,6 +1,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <poll.h>
 
 #include "raylib.h"
 
@@ -10,8 +11,8 @@
 #include "headers/term.h"
 #include "headers/window.h"
 
-#define IDLE_WAIT_S    0.008   /* poll interval when there is nothing to draw */
-#define FORCE_REDRAW_S 0.5     /* safety redraw (expose without compositor) */
+#define IDLE_WAIT_MS   16      /* max sleep when idle; wakes early on pty data */
+#define FORCE_REDRAW_S 2.0     /* safety redraw (expose without compositor) */
 
 static void on_title(const char *title) { SetWindowTitle(title); }
 
@@ -151,9 +152,10 @@ int main(int argc, char **argv) {
             last_draw = now;
             force = false;
         } else {
-            /* idle: EndDrawing would poll events, so do it by hand and sleep */
+            /* idle: poll window events, then sleep until pty data or timeout */
             PollInputEvents();
-            WaitTime(IDLE_WAIT_S);
+            struct pollfd pfd = { .fd = term.master, .events = POLLIN, .revents = 0 };
+            poll(&pfd, 1, IDLE_WAIT_MS);      /* real sleep, no busy wait */
         }
     }
 

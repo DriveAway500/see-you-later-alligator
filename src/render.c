@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* ------------------------------------------------------------------- colors */
 
@@ -198,6 +199,9 @@ void view_free(View *v) {
     if (v->font.texture.id != 0 && v->font.texture.id != GetFontDefault().texture.id)
         UnloadFont(v->font);
     v->font.texture.id = 0;
+    free(v->row_buf);
+    v->row_buf = NULL;
+    v->row_cap = 0;
 }
 
 void view_update_colors(View *v, const Config *cfg, const Term *t) {
@@ -326,6 +330,17 @@ bool render_blink_on(const Config *cfg, double last_input) {
     return ((long)(now * 1000.0) / cfg->cursor_blink_ms) % 2 == 0;
 }
 
+/* grows the row buffer only when cols increases (resize), never per cell */
+static bool ensure_row_buf(View *v, int cols) {
+    if (v->row_cap >= cols) return true;
+
+    VTermScreenCell *nb = realloc(v->row_buf, (size_t)cols * sizeof *nb);
+    if (!nb) return false;
+    v->row_buf = nb;
+    v->row_cap = cols;
+    return true;
+}
+
 /* ------------------------------------------------------------------ frame */
 
 void render_frame(View *v, const Config *cfg, const Term *t,
@@ -363,26 +378,43 @@ void render_frame(View *v, const Config *cfg, const Term *t,
     Run ul = { 0, 0, 0, { 0, 0, 0, 0 }, false };
     Run st = { 0, 0, 0, { 0, 0, 0, 0 }, false };
 
+    if (!ensure_row_buf(v, t->cols))
+        return;
+
+    VTermScreenCell *const row = v->row_buf;
+
     for (int r = 0; r < t->rows; ++r) {
         const int y = padding + r * ch;
-        for (int c = 0; c < t->cols; ++c) {
-            VTermScreenCell cell;
-            if (!term_get_cell(t, r, c, &cell)) continue;
-            if (cell.chars[0] == (uint32_t)-1) continue; /* right half of wide char */
 
-            const int w = cell.width > 0 ? cell.width : 1;
-            const bool bold = cell.attrs.bold;
-            Color fg = resolve_fg(v, cfg, cell.fg, bold);
-            Color bg = resolve_bg(v, cfg, cell.bg);
-            bool bg_default = VTERM_COLOR_IS_DEFAULT_BG(&cell.bg);
+        /* one call per row; cells past n are blank (short scrollback line) */
+        const int n = term_get_row(t, r, row, t->cols);
 
-            if (cell.attrs.reverse) {
+        for (int c = 0; c < n; ++c) {
+            const VTermScreenCell *cell = &row[c];
+            if (cell->chars[0] == (uint32_t)-1) continue; /* right half of wide char */
+
+            const int w = cell->width > 0 ? cell->width : 1;
+            const bool bold = cell->attrs.bold;
+            const bool in_sel = has_sel && sel_contains(sel, t, r, c);
+
+            /* empty cell on the default background: nothing to draw */
+            if (!in_sel &&
+                (cell->chars[0] == 0 || cell->chars[0] == ' ') &&
+                VTERM_COLOR_IS_DEFAULT_BG(&cell->bg) &&
+                !cell->attrs.reverse && !cell->attrs.underline && !cell->attrs.strike)
+                continue;
+
+            Color fg = resolve_fg(v, cfg, cell->fg, bold);
+            Color bg = resolve_bg(v, cfg, cell->bg);
+            bool bg_default = VTERM_COLOR_IS_DEFAULT_BG(&cell->bg);
+
+            if (cell->attrs.reverse) {
                 const Color tmp = fg;
                 fg = bg;
                 bg = tmp;
                 bg_default = false;
             }
-            if (has_sel && sel_contains(sel, t, r, c)) {
+            if (in_sel) {
                 fg = v->col_sel_fg;
                 bg = v->col_sel_bg;
                 bg_default = false;
@@ -393,10 +425,10 @@ void render_frame(View *v, const Config *cfg, const Term *t,
                 DrawRectangle(x, y, w * cw, ch, bg);
 
             const Vector2 pos = { (float)x, (float)y + y_offset };
-            draw_cell_text(v, &cell, pos, scale, fg, bold, fake_bold);
+            draw_cell_text(v, cell, pos, scale, fg, bold, fake_bold);
 
-            if (cell.attrs.underline) run_add(&ul, x, y + ch - 1, w * cw, fg);
-            if (cell.attrs.strike)    run_add(&st, x, y + ch / 2, w * cw, fg);
+            if (cell->attrs.underline) run_add(&ul, x, y + ch - 1, w * cw, fg);
+            if (cell->attrs.strike)    run_add(&st, x, y + ch / 2, w * cw, fg);
         }
         run_flush(&ul);
         run_flush(&st);
