@@ -107,7 +107,7 @@ void set_defaults(Config *c) {
     c->decorated      = true;
     c->resizable      = true;
     c->opacity        = 1.0f;
-    c->fps            = 60;
+    c->fps            = 30;
 
     snprintf(c->shell, sizeof c->shell, "%s", (sh && *sh) ? sh : "/bin/bash");
     snprintf(c->term, sizeof c->term, "xterm-256color");
