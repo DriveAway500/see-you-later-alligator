@@ -11,6 +11,12 @@ static void ordered(const Selection *s, const Term *t, long *a, long *b) {
     if (*a > *b) { long x = *a; *a = *b; *b = x; }
 }
 
+bool sel_range(const Selection *s, const Term *t, long *a, long *b) {
+    if (!s->active) return false;
+    ordered(s, t, a, b);
+    return true;
+}
+
 bool sel_contains(const Selection *s, const Term *t, int row, int col) {
     if (!s->active) return false;
     long a, b;

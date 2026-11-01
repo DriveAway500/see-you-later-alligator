@@ -38,6 +38,12 @@ typedef struct Term {
     size_t       title_len;
     void       (*on_title)(const char *title);   /* optional */
 
+    /* libvterm damage, per screen row. Consumed by the renderer. */
+    unsigned char *dirty;
+    int          dirty_cap;
+    bool         dirty_all;
+    bool         dirty_any;
+
     char         pump_buf[16384];   /* read buffer for term_pump (per Term, reentrant) */
 } Term;
 
@@ -55,6 +61,13 @@ void  term_write(Term *t, const char *buf, size_t n);   /* send bytes to the she
 void  term_resize(Term *t, int cols, int rows);
 void  term_scroll(Term *t, int lines);                  /* +up (back), -down */
 void  term_clear_scrollback(Term *t);                   /* also releases the line buffers */
+
+/* Damage tracking: rows whose cells changed since term_clear_damage().
+   Row numbers are screen rows (== viewport rows while sb_off == 0). */
+bool  term_row_damaged(const Term *t, int row);
+bool  term_has_damage(const Term *t);
+void  term_damage_all(Term *t);
+void  term_clear_damage(Term *t);
 
 /* vrow is a viewport row (0..rows-1); honours sb_off. */
 bool  term_get_cell(const Term *t, int vrow, int col, VTermScreenCell *cell);

@@ -1,5 +1,6 @@
 #include "headers/load_conf.h"
 #include <ctype.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +38,10 @@ static const Opt OPTS[] = {
     O_FLT ("opacity",          opacity,          0.0, 1.0),
     O_INT ("fps",              fps,              5, 360),
 
+    O_STR ("bg_image",         bg_image),
+    O_STR ("bg_image_mode",    bg_image_mode),
+    O_FLT ("bg_image_opacity", bg_image_opacity, 0.0, 1.0),
+
     O_STR ("shell",            shell),
     O_STR ("term",             term),
 
@@ -46,6 +51,7 @@ static const Opt OPTS[] = {
     O_STR ("cursor_style",     cursor_style),
     O_BOOL("cursor_blink",     cursor_blink),
     O_INT ("cursor_blink_ms",  cursor_blink_ms,  100, 5000),
+    O_INT ("cursor_blink_timeout", cursor_blink_timeout, 0, 3600),
     O_INT ("cursor_thickness", cursor_thickness, 1, 20),
 
     O_BOOL("bold_bright",      bold_bright),
@@ -109,6 +115,9 @@ void set_defaults(Config *c) {
     c->opacity        = 1.0f;
     c->fps            = 30;
 
+    snprintf(c->bg_image_mode, sizeof c->bg_image_mode, "cover");
+    c->bg_image_opacity = 1.0f;
+
     snprintf(c->shell, sizeof c->shell, "%s", (sh && *sh) ? sh : "/bin/bash");
     snprintf(c->term, sizeof c->term, "xterm-256color");
 
@@ -118,6 +127,7 @@ void set_defaults(Config *c) {
     snprintf(c->cursor_style, sizeof c->cursor_style, "block");
     c->cursor_blink      = true;
     c->cursor_blink_ms   = 600;
+    c->cursor_blink_timeout = 15;
     c->cursor_thickness  = 2;
 
     c->bold_bright    = true;

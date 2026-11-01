@@ -31,6 +31,42 @@ static inline void sb_check(const Term *t) {
     assert(t->sb_count >= 0 && t->sb_count <= t->sb_cap);
 }
 
+/* ----------------------------------------------------------------- damage */
+
+static bool dirty_reserve(Term *t, int rows) {
+    if (rows <= t->dirty_cap) return true;
+    unsigned char *nd = realloc(t->dirty, (size_t)rows);
+    if (!nd) { t->dirty_all = true; return false; }
+    memset(nd + t->dirty_cap, 1, (size_t)(rows - t->dirty_cap));
+    t->dirty = nd;
+    t->dirty_cap = rows;
+    t->dirty_all = true;
+    return true;
+}
+
+static int cb_damage(VTermRect r, void *u) {
+    Term *t = u;
+    int a = r.start_row < 0 ? 0 : r.start_row;
+    int b = r.end_row > t->dirty_cap ? t->dirty_cap : r.end_row;
+    for (int i = a; i < b; i++) t->dirty[i] = 1;
+    if (r.end_row > t->dirty_cap) t->dirty_all = true;
+    t->dirty_any = true;
+    return 1;
+}
+
+bool term_row_damaged(const Term *t, int row) {
+    return t->dirty_all || row < 0 || row >= t->dirty_cap || t->dirty[row];
+}
+
+bool term_has_damage(const Term *t) { return t->dirty_all || t->dirty_any; }
+
+void term_damage_all(Term *t) { t->dirty_all = true; t->dirty_any = true; }
+
+void term_clear_damage(Term *t) {
+    if (t->dirty) memset(t->dirty, 0, (size_t)t->dirty_cap);
+    t->dirty_all = t->dirty_any = false;
+}
+
 /* free every line buffer, including slots outside the live window
    (popped/overwritten lines keep their buffer for reuse) */
 static void sb_release(Term *t) {
@@ -120,6 +156,7 @@ static int cb_prop(VTermProp prop, VTermValue *val, void *u) {
     case VTERM_PROP_ALTSCREEN:
         t->altscreen = val->boolean;
         t->sb_off = 0;
+        term_damage_all(t);
         break;
     case VTERM_PROP_TITLE: {
         VTermStringFragment fr = val->string;
@@ -154,10 +191,12 @@ static void cb_output(const char *s, size_t len, void *u) {
 static int cb_sbclear(void *u) {
     Term *t = u;
     term_clear_scrollback(t);   /* frees lines and zeroes head/count/off */
+    term_damage_all(t);
     return 1;
 }
 
 static const VTermScreenCallbacks SCREEN_CB = {
+    .damage      = cb_damage,
     .settermprop = cb_prop,
     .sb_pushline = cb_pushline,
     .sb_popline  = cb_popline,
@@ -184,6 +223,7 @@ static void term_teardown(Term *t) {
     if (t->child > 0) reap_child(t->child);
     sb_release(t);
     free(t->sb);
+    free(t->dirty);
     if (t->vt) vterm_free(t->vt);
     memset(t, 0, sizeof *t);
     t->master = -1;
@@ -201,6 +241,8 @@ int term_init(Term *t, const Config *cfg) {
         t->sb_cap = t->sb ? cfg->scrollback : 0;
     }
 
+    if (!dirty_reserve(t, t->rows)) goto fail;
+
     t->vt = vterm_new(t->rows, t->cols);
     if (!t->vt) goto fail;                       /* FIX: sb was leaked here */
     vterm_set_utf8(t->vt, 1);
@@ -209,7 +251,10 @@ int term_init(Term *t, const Config *cfg) {
     vterm_output_set_callback(t->vt, cb_output, t);
     vterm_screen_set_callbacks(t->screen, &SCREEN_CB, t);
     vterm_screen_enable_altscreen(t->screen, 1);
+    vterm_screen_set_damage_merge(t->screen, VTERM_DAMAGE_ROW);   /* few callbacks; flushed per pump */
     vterm_screen_reset(t->screen, 1);
+    vterm_screen_flush_damage(t->screen);
+    term_damage_all(t);
 
     t->child = pty_spawn(&t->master, cfg->shell, cfg->term, t->rows, t->cols);
     if (t->child < 0) { t->child = 0; goto fail; }   /* FIX: vt and sb were leaked */
@@ -256,6 +301,7 @@ int term_pump(Term *t) {
     }
     /* OPT: hitting the bound still returns 1, so the event loop calls again
        and nothing is lost (the rest stays in the kernel buffer) */
+    if (got) vterm_screen_flush_damage(t->screen);
     sb_check(t);
     return got;
 }
@@ -266,7 +312,10 @@ void term_write(Term *t, const char *buf, size_t n) {
 
 void term_resize(Term *t, int cols, int rows) {
     if (cols < 1 || rows < 1) return;
+    dirty_reserve(t, rows);
     vterm_set_size(t->vt, rows, cols);           /* may call push/popline */
+    vterm_screen_flush_damage(t->screen);
+    term_damage_all(t);
     if (t->master >= 0) pty_set_size(t->master, rows, cols);
     t->rows = rows;
     t->cols = cols;
