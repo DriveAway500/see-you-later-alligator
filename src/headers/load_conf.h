@@ -21,8 +21,13 @@ typedef struct {
     int   padding;
     bool  decorated;
     bool  resizable;
-    float opacity;            /* 0.0 - 1.0 (background only) */
-    int   fps;
+    float opacity;            /* 0.0 - 1.0 (background only; needs a compositor) */
+    int   fps;                /* max redraws per second (frames are only drawn on change) */
+
+    /* background image (optional; empty/missing file = plain bg colour) */
+    char  bg_image[256];      /* PNG/JPEG/BMP/GIF/TGA path, "~/" allowed */
+    char  bg_image_mode[16];  /* cover | contain | stretch | center | tile */
+    float bg_image_opacity;   /* 0.0 - 1.0 */
 
     /* shell */
     char  shell[256];         /* command line, split on spaces */
@@ -36,6 +41,7 @@ typedef struct {
     char  cursor_style[16];   /* block | underline | bar */
     bool  cursor_blink;
     int   cursor_blink_ms;
+    int   cursor_blink_timeout; /* seconds without input before the blink stops (0 = never); lets an idle terminal sleep */
     int   cursor_thickness;
 
     /* text rendering */

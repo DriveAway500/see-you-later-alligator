@@ -9,26 +9,31 @@ WARN     := -Wall -Wextra -std=gnu11
 INCLUDES := -Isrc -Isrc/headers
 DEPFLAGS := -MMD -MP
 
-PKG_CFLAGS := $(shell pkg-config --cflags raylib vterm 2>/dev/null)
-PKG_LIBS   := $(shell pkg-config --libs raylib vterm 2>/dev/null)
+# glfw3 (window/input/GL context), freetype2 (glyphs), vterm (terminal core).
+# OpenGL itself is loaded at runtime through GLFW: no libGL link, no GLAD.
+# Build needs the GL headers (GL/glcorearb.h: libgl-dev / mesa-common-dev / libglvnd).
+PKGS       := glfw3 freetype2 vterm
+PKG_CFLAGS := $(shell pkg-config --cflags $(PKGS) 2>/dev/null)
+PKG_LIBS   := $(shell pkg-config --libs $(PKGS) 2>/dev/null)
 
 ifeq ($(PKG_LIBS),)
-PKG_LIBS = -lraylib -lvterm
+PKG_CFLAGS := -I/usr/include/freetype2
+PKG_LIBS   := -lglfw -lfreetype -lvterm
 endif
 
-LDLIBS_EXTRA := -lutil -lm
+LDLIBS_EXTRA := -lutil -lm -lpthread
 
 # ---- build modes -----------------------------------------------------------
 # MODE: release (default), debug, asan
 MODE ?= release
 
 ifeq ($(MODE),debug)
-  CFLAGS  := -g -O0 -fno-omit-frame-pointer
+CFLAGS  := -g -O0 -fno-omit-frame-pointer
 else ifeq ($(MODE),asan)
-  CFLAGS  := -g -O1 -fno-omit-frame-pointer -fsanitize=address
-  LDFLAGS += -fsanitize=address
+CFLAGS  := -g -O1 -fno-omit-frame-pointer -fsanitize=address
+LDFLAGS += -fsanitize=address
 else ifneq ($(MODE),release)
-  $(error Invalid MODE: $(MODE) (use release, debug or asan))
+$(error Invalid MODE: $(MODE) (use release, debug or asan))
 endif
 
 BUILD := build/$(MODE)
@@ -50,7 +55,7 @@ $(BIN): $(OBJ)
 
 $(BUILD)/%.o: src/%.c
 > @mkdir -p $(BUILD)
-> $(CC) $(CFLAGS) $(WARN) $(INCLUDES) $(PKG_CFLAGS) $(DEPFLAGS) -c $< -o $@
+> $(CC) $(CFLAGS) -pthread $(WARN) $(INCLUDES) $(PKG_CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 -include $(DEP)
 
