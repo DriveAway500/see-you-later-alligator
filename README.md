@@ -2,6 +2,13 @@
 
 silly-term is a Linux terminal emulator written in C. GLFW creates the window and OpenGL 3.3 context, FreeType rasterizes fonts, libvterm handles terminal behavior, and a pseudoterminal (PTY) connects the emulator to a shell or command.
 
+## Screenshots
+
+<p align="center">
+	<img src="assets/silly-term.png" alt="silly-term terminal emulator" width="49%">
+	<img src="assets/silly-term-htop.png" alt="silly-term running htop" width="49%">
+</p>
+
 ## Features
 
 - Truecolor and indexed-color terminal output
