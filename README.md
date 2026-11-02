@@ -156,6 +156,7 @@ The configuration format supports:
 - Numeric values clamped to supported ranges.
 
 See [`sillyconf.conf`](sillyconf.conf) for the complete configuration reference.
+See the [Configuration Guide](docs/sillyconf-guide.md) for more details.
 
 ## Default Keybindings
 
